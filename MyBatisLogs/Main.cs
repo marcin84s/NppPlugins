@@ -58,6 +58,8 @@ namespace Kbg.NppPluginNET
             }
         }
 
+         
+
         private static string FindInSelection(string selection)
         {
             string preparingLabel = "==>  Preparing: ";
@@ -82,6 +84,11 @@ namespace Kbg.NppPluginNET
 
             string parametersText = selection.Substring(parametersIndex + parametersLabel.Length);
 
+            return FillParameters(sql, parametersText);
+        }
+
+        private static string FillParameters(string sql, string parametersText)
+        {
             Regex regex = new Regex(@"^(.*?\(\w+\))");
 
             while (sql.Contains("?"))
