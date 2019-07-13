@@ -1,4 +1,4 @@
-# NppPlugins
+# Notepad++ Plugins
 
 ### Mybatis logs helper 
 It replaces parameter placeholders with actual parameters. 
