@@ -8,6 +8,8 @@ namespace Kbg.NppPluginNET
     class Main
     {
         internal const string PluginName = "MyBatisLogs";
+        private const string PREPARING_MARKER = "==>  Preparing: ";
+        private const string PARAMETERS_MARKER = "==> Parameters: ";
 
         public static void OnNotification(ScNotification notification)
         {  
@@ -30,24 +32,25 @@ namespace Kbg.NppPluginNET
         {
             IScintillaGateway scintillaGateway = PluginBase.GetGatewayFactory()();
 
-            /*
-            Position posStart = scintillaGateway.GetSelectionStart();
-            Position posEnd = scintillaGateway.GetSelectionEnd();
-
-            int lineA = scintillaGateway.LineFromPosition(posStart);
-            int lineB = scintillaGateway.LineFromPosition(posEnd);
-
-            string line = scintillaGateway.GetLine(lineA);
-            */
             string selection = scintillaGateway.GetSelText();
             if (string.IsNullOrEmpty(selection))
             {
                 MessageBox.Show("no selection");
+                return;
             }
 
             try
             {
-                string sql = FindInSelection(selection);
+                string sql;
+                int lineNumber = 0;
+                if (IsOneLineSelection(scintillaGateway, ref lineNumber))
+                {
+                    sql = FindSql(scintillaGateway, selection, lineNumber);
+                }
+                else
+                {
+                     sql = FindInSelection(selection);
+                }
                 Win32.SendMessage(PluginBase.nppData._nppHandle, (uint)NppMsg.NPPM_MENUCOMMAND, 0, NppMenuCmd.IDM_FILE_NEW);
 
                 scintillaGateway.SetText(sql);
@@ -58,7 +61,76 @@ namespace Kbg.NppPluginNET
             }
         }
 
-         
+        private static string FindSql(IScintillaGateway scintillaGateway, string selection, int lineNumber)
+        {
+            string line = scintillaGateway.GetLine(lineNumber);
+            if (line.Contains(PREPARING_MARKER))
+            {
+                string parametersLine = FindLineWithMarker(scintillaGateway, selection, PARAMETERS_MARKER, lineNumber, 1);
+                return FillParameters(SubstringAfterText(line, PREPARING_MARKER), parametersLine);
+            }
+            else if (line.Contains(PARAMETERS_MARKER))
+            {
+                string preparingLine = FindLineWithMarker(scintillaGateway, selection, PREPARING_MARKER, lineNumber, -1);
+                return FillParameters(preparingLine, SubstringAfterText(line, PARAMETERS_MARKER));
+            }
+            else
+            {
+                throw new Exception(string.Format("current line contains neither '{0}' nor '{1}'", PREPARING_MARKER, PARAMETERS_MARKER));
+            }
+        }
+
+        private static string FindLineWithMarker(IScintillaGateway scintillaGateway, string selection, string marker, int lineNumber, int direction)
+        {
+            string result = null;
+
+            for (int i = 1; i < 20; i++)
+            {
+                int checkLine = lineNumber + direction * i;
+                if (checkLine < 0)
+                {
+                    break;
+                }
+                string line = scintillaGateway.GetLine(checkLine);
+                if (!string.IsNullOrEmpty(line) && line.Contains(selection) && line.Contains(marker))
+                {
+                    result = line;
+                    break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(result))
+            {
+                throw new Exception(string.Format("cannot find marker '{0}' in the vicinity of current line", marker));
+            }
+            else 
+            {
+                return SubstringAfterText(result, marker);
+            }
+        }
+
+        private static string SubstringAfterText(string text, string find)
+        {
+            int indexMarker = text.IndexOf(find);
+            if (indexMarker >= 0)
+            {
+                return text.Substring(indexMarker + find.Length);
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsOneLineSelection(IScintillaGateway scintillaGateway, ref int lineNumber)
+        {
+            Position posStart = scintillaGateway.GetSelectionStart();
+            Position posEnd = scintillaGateway.GetSelectionEnd();
+
+            int lineA = scintillaGateway.LineFromPosition(posStart);
+            int lineB = scintillaGateway.LineFromPosition(posEnd);
+
+            lineNumber = lineA;
+            return lineA == lineB;
+        }
 
         private static string FindInSelection(string selection)
         {
