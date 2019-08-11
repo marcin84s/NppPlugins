@@ -26,6 +26,33 @@ namespace Kbg.NppPluginNET
         internal static void CommandMenuInit()
         {
             PluginBase.SetCommand(0, "Merge Parameters in New Tab", mergeParamsInNewTab, new ShortcutKey(true, true, false, Keys.P));
+            PluginBase.SetCommand(1, "Remove whitespaces", removeWhitespaces, new ShortcutKey(true, true, false, Keys.K));
+        }
+
+        internal static void removeWhitespaces()
+        {
+            IScintillaGateway scintillaGateway = PluginBase.GetGatewayFactory()();
+            string selection = scintillaGateway.GetSelText();
+
+            string result = "";
+            bool addedSpace = false;
+            foreach (char ch in selection)
+            {
+                if (Char.IsWhiteSpace(ch))
+                {
+                    if (!addedSpace) {
+                        addedSpace = true;
+                        result += " ";
+                    }
+                }
+                else
+                {
+                    addedSpace = false;
+                    result += ch;
+                }
+            }
+
+            scintillaGateway.ReplaceSel(result);
         }
 
         internal static void mergeParamsInNewTab()
