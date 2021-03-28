@@ -2,6 +2,7 @@
 using System.Windows.Forms;
 using Kbg.NppPluginNET.PluginInfrastructure;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
 
 namespace Kbg.NppPluginNET
 {
@@ -27,6 +28,199 @@ namespace Kbg.NppPluginNET
         {
             PluginBase.SetCommand(0, "Merge Parameters in New Tab", mergeParamsInNewTab, new ShortcutKey(true, true, false, Keys.P));
             PluginBase.SetCommand(1, "Remove whitespaces", removeWhitespaces, new ShortcutKey(true, true, false, Keys.K));
+            PluginBase.SetCommand(2, "Base64 --> Hex", base64toHex, new ShortcutKey(true, true, true, Keys.B));
+            PluginBase.SetCommand(2, "Hex --> Base64", hexToBase64, new ShortcutKey(true, true, true, Keys.H));
+        }
+
+        internal static void hexToBase64()
+        {
+            IScintillaGateway scintillaGateway = PluginBase.GetGatewayFactory()();
+            string selection = scintillaGateway.GetSelText();
+
+            if (string.IsNullOrEmpty(selection))
+            {
+                Tuple<string, Position, Position> hex = extractHexFromCurrentPosition(scintillaGateway);
+                if (hex != null)
+                {
+                    string base64 = convertToBase64(hex.Item1);
+                    if (base64 != null)
+                    {
+                        scintillaGateway.SetSel(hex.Item2, hex.Item3);
+                        scintillaGateway.ReplaceSel(base64);
+                    }
+                }
+            }
+            else
+            {
+                if (selection.Length % 2 != 0)
+                {
+                    MessageBox.Show("selection length not divisible by 2");
+                    return;
+                }
+
+                string base64 = convertToBase64(selection);
+                if (base64 != null)
+                {
+                    scintillaGateway.ReplaceSel(base64);
+                }
+            }
+        }
+
+        internal static Tuple<string, Position, Position> extractHexFromCurrentPosition(IScintillaGateway scintillaGateway)
+        {
+            Position position = scintillaGateway.GetCurrentPos();
+            int ch = scintillaGateway.GetCharAt(position);
+            if (!isValidHex((char)ch))
+            {
+                MessageBox.Show("invalid hex character under cursor");
+                return null;
+            }
+
+            // scan backward
+            Position positionOfHex = findBeginningOfFragment(scintillaGateway, position, isValidHex);
+            // get hex from known start position until last valid character
+            return getFragmentStartingFrom(scintillaGateway, positionOfHex.Value, isValidHex);
+        }
+
+        internal static string convertToBase64(string input)
+        {
+            Dictionary<string, byte> hexindex = new Dictionary<string, byte>();
+            for (int i = 0; i <= 255; i++)
+            {
+                hexindex.Add(i.ToString("X2"), (byte)i);
+            }
+
+            List<byte> bytes = new List<byte>();
+            char[] chars = input.ToCharArray();
+            for (int i = 0; i < chars.Length; i += 2)
+            {
+                char first = chars[i];
+                char second = chars[i + 1];
+                if (isValidHex(first) && isValidHex(second))
+                {
+                    string code = "" + first + second;
+                    byte b = hexindex[code.ToUpper()];
+                    bytes.Add(b);
+                }
+                else
+                {
+                    MessageBox.Show("invalid character");
+                    return null;
+                }
+            }
+
+            return Convert.ToBase64String(bytes.ToArray());
+        }
+
+        internal static bool isValidHex(char ch)
+        {
+            bool digit = ch >= '0' && ch <= '9';
+            bool lower = ch >= 'a' && ch <= 'f';
+            bool upper = ch >= 'A' && ch <= 'F';
+            return digit || lower || upper;
+        }
+
+        internal static void base64toHex()
+        {
+            IScintillaGateway scintillaGateway = PluginBase.GetGatewayFactory()();
+            string selection = scintillaGateway.GetSelText();
+
+            try
+            {
+                if (string.IsNullOrEmpty(selection))
+                {
+                    Tuple<string, Position, Position> base64AndRange = extractBase64FromCurrentPosition(scintillaGateway);
+                    if (base64AndRange != null) { 
+                        string hex = convertBase64ToHex(base64AndRange.Item1);
+                        scintillaGateway.SetSel(base64AndRange.Item2, base64AndRange.Item3);
+                        scintillaGateway.ReplaceSel(hex);
+                    }
+                }
+                else
+                {
+                    scintillaGateway.ReplaceSel(convertBase64ToHex(selection));
+                }
+            }
+            catch (FormatException e)
+            {
+                MessageBox.Show("FormatException " + e.Message);
+            }
+        }
+
+        internal static string convertBase64ToHex(string input)
+        {
+            byte[] bytes = Convert.FromBase64String(input);
+            return BitConverter.ToString(bytes).Replace("-", "");
+        }
+
+        internal static Tuple<string, Position, Position> extractBase64FromCurrentPosition(IScintillaGateway scintillaGateway)
+        {
+            int max = scintillaGateway.GetLength();
+
+            Position position = scintillaGateway.GetCurrentPos();
+            int ch = scintillaGateway.GetCharAt(position);
+            if (!isValidBase64Character((char)ch))
+            {
+                MessageBox.Show("invalid base64 character under cursor");
+                return null;
+            }
+
+            // scan backward
+            Position positionOfBase64 = findBeginningOfFragment(scintillaGateway, position, isValidBase64Character);
+            // get base64 from known start position until last valid character
+            return getFragmentStartingFrom(scintillaGateway, positionOfBase64.Value, isValidBase64Character);
+        }
+
+        internal static Tuple<string, Position, Position> getFragmentStartingFrom(IScintillaGateway scintillaGateway, int start, Predicate<char> predicate)
+        {
+            int length = scintillaGateway.GetLength();
+
+            int lastValid = start;
+            List<char> chars = new List<char>();
+            for (int pos = start; pos < length; pos++)
+            {
+                int ch = scintillaGateway.GetCharAt(new Position(pos));
+                if (predicate((char)ch)) {
+                    chars.Add((char)ch);
+                    lastValid = pos;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return new Tuple<string, Position, Position>(new string(chars.ToArray()), new Position(start), new Position(lastValid + 1));
+        }
+
+        internal static Position findBeginningOfFragment(IScintillaGateway scintillaGateway, Position start, Predicate<char> predicate)
+        {
+            for (int pos = start.Value; ; pos--)
+            {
+                if (pos == 0)
+                {
+                    if (predicate((char)scintillaGateway.GetCharAt(new Position(0))))
+                    {
+                        return new Position(0);
+                    }
+                    else
+                    {
+                        return new Position(1);
+                    }
+                }
+
+                if (!predicate((char)scintillaGateway.GetCharAt(new Position(pos)))) {
+                    return new Position(pos + 1);
+                }
+            }
+        }
+
+        internal static bool isValidBase64Character(char ch)
+        {
+            bool digit = ch >= '0' && ch <= '9';
+            bool letter = ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z';
+            bool otherAllowed = ch == '+' || ch == '/' || ch == '=';
+            return digit || letter || otherAllowed;
         }
 
         internal static void removeWhitespaces()
